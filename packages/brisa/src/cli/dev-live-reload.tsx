@@ -157,7 +157,7 @@ export function LiveReloadScript({
   children: JSX.Element;
 }) {
   const __protocol__ =
-  // @ts-expect-error
+    // @ts-expect-error
     globalThis?.HOT_RELOADING_WEBSOCKET_PROTOCOL ||
     Number(process.env?.TLS || '0')
       ? 'wss'
