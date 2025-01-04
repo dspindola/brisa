@@ -19,7 +19,7 @@ function nanoseconds() {
 }
 
 function isError(err: any): err is Error {
-  if ("isError" in Error && typeof Error?.isError === "function") {
+  if ('isError' in Error && typeof Error?.isError === 'function') {
     return Error?.isError?.(err) === true;
   } else {
     return err instanceof Error === true;
@@ -156,9 +156,12 @@ export function LiveReloadScript({
   protocol?: 'ws' | 'wss';
   children: JSX.Element;
 }) {
-  
+  const __protocol__ =
   // @ts-expect-error
-  const __protocol__ = globalThis?.HOT_RELOADING_WEBSOCKET_PROTOCOL || Number(process.env?.TLS || "0") ? 'wss' : 'ws';
+    globalThis?.HOT_RELOADING_WEBSOCKET_PROTOCOL ||
+    Number(process.env?.TLS || '0')
+      ? 'wss'
+      : 'ws';
   const __port__ = globalThis.brisaServer?.port ?? port;
   const __hostname__ = globalThis.brisaServer?.hostname ?? hostname;
 

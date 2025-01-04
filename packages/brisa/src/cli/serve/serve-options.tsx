@@ -30,19 +30,20 @@ import { handleSPARedirects } from '@/utils/hard-to-soft-redirect';
 
 function resolveConfigTLS(config: Configuration) {
   // @ts-ignore
-  global!.HOT_RELOADING_WEBSOCKET_PROTOCOL = Number(process.env?.TLS || "0") ? 'wss' : 'ws';
+  global!.HOT_RELOADING_WEBSOCKET_PROTOCOL = Number(process.env?.TLS || '0')
+    ? 'wss'
+    : 'ws';
 
   if (!config?.tls) {
-    return config?.tls
+    return config?.tls;
   }
 
   // @ts-ignore
-  global!.HOT_RELOADING_WEBSOCKET_PROTOCOL =  "wss"
-  return {...config?.tls};
+  global!.HOT_RELOADING_WEBSOCKET_PROTOCOL = 'wss';
+  return { ...config?.tls };
 }
 
 export async function getServeOptions() {
-
   setUpEnvVars();
 
   const {
@@ -60,7 +61,7 @@ export async function getServeOptions() {
     HEADERS: { CACHE_CONTROL },
   } = getConstants();
 
-  resolveConfigTLS(CONFIG)
+  resolveConfigTLS(CONFIG);
 
   if (IS_PRODUCTION && !fs.existsSync(BUILD_DIR)) {
     throw new Error('Not exist "build" yet. Please run "brisa build" first');
