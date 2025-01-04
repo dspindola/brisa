@@ -1,11 +1,13 @@
 import fs from 'node:fs';
-import path from 'node:path';
+import path, { resolve } from 'node:path';
 import process from 'node:process';
 import cp from 'node:child_process';
 import constants, { reinitConstants } from '@/constants';
 import dangerHTML from '@/utils/danger-html';
 import { toInline } from '@/helpers';
 import { logError } from '@/utils/log/log-build';
+
+type SpawnEventHandler = typeof cp.spawn;
 
 const { LOG_PREFIX, SRC_DIR, IS_DEVELOPMENT, IS_SERVE_PROCESS } = constants;
 const LIVE_RELOAD_WEBSOCKET_PATH = '__brisa_live_reload__';
@@ -16,8 +18,16 @@ function nanoseconds() {
   return Number(process.hrtime.bigint());
 }
 
+function isError(err: any): err is Error {
+  if ("isError" in Error && typeof Error?.isError === "function") {
+    return Error?.isError?.(err) === true;
+  } else {
+    return err instanceof Error === true;
+  }
+}
+
 export async function activateHotReload() {
-  let currentProcess: ReturnType<typeof cp.spawn> | null = null;
+  let currentProcess: ReturnType<SpawnEventHandler> | null = null;
 
   async function watchSourceListener(event: any, filename: any) {
     try {
@@ -34,12 +44,17 @@ export async function activateHotReload() {
       console.log(LOG_PREFIX.WAIT, `recompiling ${filename}...`);
       recompile(filename as string);
     } catch (e: any) {
-      logError({
-        messages: [e.message, `Error while trying to recompile ${filename}`],
-        stack: e.stack,
-        docTitle: `Please, file a GitHub issue to Brisa's team`,
-        docLink: 'https://github.com/brisa-build/brisa/issues/new',
-      });
+      isError(e)
+        ? logError({
+            docTitle: `Please, file a GitHub issue to Brisa's team`,
+            docLink: 'https://github.com/brisa-build/brisa/issues/new',
+            messages: [
+              e.message,
+              `Error while trying to recompile ${filename}`,
+            ],
+            stack: e.stack,
+          })
+        : null;
     }
   }
 
@@ -100,9 +115,24 @@ export async function activateHotReload() {
     watchSourceListener,
   );
 
-  process.on('SIGINT', () => {
-    globalThis.watcher?.close();
-    process.exit(0);
+  const enum PROCESS_ON {
+    SIGINT = 'SIGINT',
+  }
+  const closeGlobalWatcher = (onClose?: () => void) => {
+    try {
+      globalThis.watcher?.close();
+      onClose?.();
+    } catch (err: any) {
+      isError(err) &&
+        logError({
+          messages: [`Error while trying to close the watcher`, err.message],
+          stack: err.stack,
+        });
+    }
+  };
+
+  process.on(PROCESS_ON.SIGINT, () => {
+    closeGlobalWatcher(() => process.exit(0));
   });
 
   return recompile;
@@ -113,24 +143,28 @@ export async function activateHotReload() {
 // could be used outside for other reasons without having to run hotreloading,
 // it only makes sense to start hotreloading if it is the serve process.
 // IS_DEVELOPMENT instead of !IS_PRODUCTION to avoid Test environments.
+
 if (IS_DEVELOPMENT && IS_SERVE_PROCESS) activateHotReload();
 
 export function LiveReloadScript({
   port,
   children,
+  hostname = 'localhost',
 }: {
   port: number;
+  hostname?: string;
+  protocol?: 'ws' | 'wss';
   children: JSX.Element;
 }) {
-  const PORT = globalThis.brisaServer?.port ?? port;
-  const wsUrl = `ws://localhost:${PORT}/${LIVE_RELOAD_WEBSOCKET_PATH}`;
+  
+  // @ts-expect-error
+  const __protocol__ = globalThis?.HOT_RELOADING_WEBSOCKET_PROTOCOL || Number(process.env?.TLS || "0") ? 'wss' : 'ws';
+  const __port__ = globalThis.brisaServer?.port ?? port;
+  const __hostname__ = globalThis.brisaServer?.hostname ?? hostname;
 
-  return (
-    <>
-      <script id="hotreloading-script">
-        {dangerHTML(
-          toInline(
-            `(()=>{
+  const address = `${__protocol__}://${__hostname__}:${__port__}/${LIVE_RELOAD_WEBSOCKET_PATH}`;
+
+  const HOTRELOADING_SCRIPT_RAW = String.raw`(()=>{
             let s;
             let tries = 0;
 
@@ -138,7 +172,7 @@ export function LiveReloadScript({
               tries++;
               if(tries > 10) return;
               if(s) s.close();
-              s = new WebSocket("${wsUrl}");
+              s = new WebSocket("${address}");
               s.onmessage = e => {
                 if(e.data === "${LIVE_RELOAD_COMMAND}"){
                   window._xm = "native";
@@ -150,9 +184,12 @@ export function LiveReloadScript({
               s.onerror = () => s.close();
             }
             wsc();
-          })();`,
-          ),
-        )}
+          })();`;
+
+  return (
+    <>
+      <script id="hotreloading-script">
+        {dangerHTML(toInline(HOTRELOADING_SCRIPT_RAW))}
       </script>
       {children}
     </>

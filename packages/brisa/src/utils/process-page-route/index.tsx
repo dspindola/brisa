@@ -56,7 +56,7 @@ function PageLayout({
   const childrenWithLiveReload = IS_PRODUCTION ? (
     children
   ) : (
-    <LiveReloadScript port={PORT}>{children}</LiveReloadScript>
+    <LiveReloadScript port={PORT} hostname={brisaServer.hostname} >{children}</LiveReloadScript>
   );
 
   return (

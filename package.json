@@ -57,5 +57,10 @@
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "husky": "9.1.6"
+  },
+  "dependencies": {
+    "@shikijs/cli": "^1.26.1",
+    "defu": "^6.1.4",
+    "shiki": "^1.26.1"
   }
 }

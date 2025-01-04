@@ -5,7 +5,7 @@ import path from 'node:path';
 import process from 'node:process';
 
 import { getConstants } from '@/constants';
-import type { MatchedBrisaRoute, RequestContext } from '@/types';
+import type { Configuration, MatchedBrisaRoute, RequestContext } from '@/types';
 import extendRequestContext from '@/utils/extend-request-context';
 import getImportableFilepath, {
   pathToFileURLWhenNeeded,
@@ -28,7 +28,21 @@ import getContentTypeFromPath from '@/utils/get-content-type-from-path';
 import getInitiator from '@/utils/get-initiator';
 import { handleSPARedirects } from '@/utils/hard-to-soft-redirect';
 
+function resolveConfigTLS(config: Configuration) {
+  // @ts-ignore
+  global!.HOT_RELOADING_WEBSOCKET_PROTOCOL = Number(process.env?.TLS || "0") ? 'wss' : 'ws';
+
+  if (!config?.tls) {
+    return config?.tls
+  }
+
+  // @ts-ignore
+  global!.HOT_RELOADING_WEBSOCKET_PROTOCOL =  "wss"
+  return {...config?.tls};
+}
+
 export async function getServeOptions() {
+
   setUpEnvVars();
 
   const {
@@ -45,6 +59,8 @@ export async function getServeOptions() {
     JS_RUNTIME,
     HEADERS: { CACHE_CONTROL },
   } = getConstants();
+
+  resolveConfigTLS(CONFIG)
 
   if (IS_PRODUCTION && !fs.existsSync(BUILD_DIR)) {
     throw new Error('Not exist "build" yet. Please run "brisa build" first');
@@ -69,7 +85,7 @@ export async function getServeOptions() {
   const route404 = pagesRouter.reservedRoutes[PAGE_404];
   const middlewareModule = await importFileIfExists('middleware', BUILD_DIR);
   const customMiddleware = middlewareModule?.default;
-  const tls = CONFIG?.tls;
+  const tls = resolveConfigTLS(CONFIG);
   const basePath = CONFIG?.basePath ?? '';
 
   // Options to start server
@@ -119,7 +135,15 @@ export async function getServeOptions() {
         }
 
         if (file && line != null && column != null) {
-          Bun.openInEditor(file, { line: +line, column: +column });
+          if ('Bun' in globalThis) {
+            // Users can specify the editor to use when debugging, the value should exists in system PATH
+            Bun.openInEditor(file, {
+              line: +line,
+              column: +column,
+              editor: (Bun.which(process.env.BUN_OPEN_IN_EDITOR!) ??
+                'vscode') as 'vscode',
+            });
+          }
           return new Response(null, { status: 200 });
         }
       }
@@ -212,6 +236,7 @@ export async function getServeOptions() {
 
       return handleSPARedirects(request, response);
     },
+    // since TLS can assume undfined this value could be checked to inject the correct websocket URL in the global configuration
     tls,
     websocket: {
       open: (ws) => {
@@ -378,3 +403,5 @@ export function setUpEnvVars(
 declare global {
   var sockets: Map<string, ServerWebSocket<unknown>> | undefined;
 }
+
+declare const HOT_RELOADING_WEBSOCKET_PROTOCOL: 'ws' | 'wss';

@@ -10,19 +10,67 @@ import handler from './node-serve/handler';
 import bunServe from './bun-serve';
 import { runtimeVersion } from '@/utils/js-runtime-util';
 import denoServe from './deno-serve';
+import defu from 'defu';
+import { loadShiki } from '../utils/shiki';
 
 const { LOG_PREFIX, JS_RUNTIME, VERSION, IS_PRODUCTION } = constants;
 
+type RuntimeId = 'node' | 'bun' | 'deno';
+
+class ServerConfig {
+  #options: ServeOptions;
+  constructor(protected options: ServeOptions) {
+    this.#options = defu(this.options);
+  }
+
+  static init(options: ServeOptions) {
+    return new ServerConfig(options) as Omit<ServerConfig, 'init'>;
+  }
+
+  [Symbol.for('__config__')]() {
+    return this.options;
+  }
+
+  update(config: Partial<ServeOptions>) {
+    this.#options = defu(this.#options, config);
+  }
+
+  resolveRuntime<Id extends RuntimeId>(id: Id) {
+    const runtime = new Map<
+      RuntimeId,
+      (overrides?: Partial<ServeOptions>) => any
+    >([
+      [
+        'node',
+        (overrides) =>
+          nodeServe.bind(null, {
+            port: Number(overrides?.port ?? this.options.port),
+          }),
+      ],
+      [
+        'deno',
+        (overrides) => denoServe.bind(null, defu(this.options, overrides)),
+      ],
+      [
+        'bun',
+        (overrides) => bunServe.bind(null, defu(this.options, overrides)),
+      ],
+    ]);
+
+    const setup = runtime.get(id);
+
+    if (!setup) {
+      throw new Error(`Unknown runtime "${id}"`);
+    }
+
+    return setup;
+  }
+}
+
 function getServe(options: ServeOptions) {
-  if (JS_RUNTIME === 'node') {
-    return nodeServe.bind(null, { port: Number(options.port) });
-  }
-
-  if (JS_RUNTIME === 'deno') {
-    return denoServe.bind(null, options);
-  }
-
-  return bunServe.bind(null, options);
+  const serverOptions = ServerConfig.init(options);
+  serverOptions.resolveRuntime(JS_RUNTIME)(options);
+  return serverOptions.resolveRuntime('bun')(options);
 }
 
 async function init(options: ServeOptions) {
@@ -57,9 +105,17 @@ async function init(options: ServeOptions) {
 
   try {
     const serve = getServe(options);
-    const { hostname, port } = await serve();
+
+    if (process?.isBun) {
+      const shiki = loadShiki();
+      const code = await shiki(Bun.inspect(options));
+      console.log(code);
+    }
+
+    const server = await serve();
+
     const runtimeMsg = `🚀 Brisa ${VERSION}: Runtime on ${runtimeVersion(JS_RUNTIME)}`;
-    const listeningMsg = `listening on http://${hostname}:${port}`;
+    const listeningMsg = `listening on http://${server.hostname}:${server.port}`;
     const log =
       constants.CONFIG?.clustering && cluster.worker
         ? cluster.worker.send.bind(cluster.worker)
